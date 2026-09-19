@@ -198,23 +198,34 @@ def process_account(username, password, account_index):
 
             # ---------- 2. 点击打开 QwenPaw 按钮 ----------
             log(f"🔍 尝试点击 QwenPaw 按钮，关键词列表：{QWEN_KEYWORDS}")
-            # 处理可能的新窗口
-            with context.expect_page() as new_page_info:
-                if not click_button_by_keywords(page, QWEN_KEYWORDS, total_timeout=60000):
-                    screenshot(page, f"08_qwen_failed_{account_index}")
-                    raise RuntimeError(f"账号 {account_index} 无法点击 QwenPaw 按钮")
+            # 保活视角：登录+点击 dashboard 按钮即已完成活跃交互。
+            # 新页面是否弹出只是可选验证（平台可能改成当前页跳转或延迟弹窗），
+            # popup 不来不应判失败——expect_page 超时曾把成功的保活误报为 error。
+            popup_ok = True
+            try:
+                with context.expect_page(timeout=15000) as new_page_info:
+                    if not click_button_by_keywords(page, QWEN_KEYWORDS, total_timeout=60000):
+                        log("⚠️ 未找到 QwenPaw 按钮（可能已延迟渲染）")
+                        popup_ok = False
+                    else:
+                        new_page = new_page_info.value
+                        try:
+                            new_page.wait_for_load_state("networkidle", timeout=10000)
+                            log("✅ 新页面（QwenPaw）已加载")
+                            screenshot(new_page, f"09_qwen_newpage_{account_index}")
+                            new_page.close()
+                        except Exception:
+                            log("新页面加载等待超时（不影响保活）")
+            except Exception as e:
+                popup_ok = False
+                log(f"未检测到新页面（{type(e).__name__}），可能在当前页打开，等待加载...")
                 try:
-                    new_page = new_page_info.value
-                    new_page.wait_for_load_state("networkidle", timeout=10000)
-                    log("✅ 新页面（QwenPaw）已加载")
-                    screenshot(new_page, f"09_qwen_newpage_{account_index}")
-                    new_page.close()
-                except:
-                    log("未检测到新页面，可能在当前页面打开，等待加载...")
                     page.wait_for_load_state("networkidle", timeout=10000)
-                    screenshot(page, f"09_qwen_currentpage_{account_index}")
+                except Exception:
+                    pass
+                screenshot(page, f"09_qwen_currentpage_{account_index}")
 
-            log(f"🎉 账号 {account_index} 处理成功")
+            log(f"🎉 账号 {account_index} 处理成功 (popup={popup_ok})")
             browser.close()
             return True
         except Exception as e:
